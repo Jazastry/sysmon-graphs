@@ -1,0 +1,13 @@
+{
+  "uuid": "sysmon-graphs@jazastry",
+  "name": "SysMon Graphs",
+  "description": "CPU, RAM, temperature, network and disk graphs in the top bar, with hover popovers.",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48"
+  ],
+  "version": 19,
+  "settings-schema": "org.gnome.shell.extensions.sysmon-graphs"
+}

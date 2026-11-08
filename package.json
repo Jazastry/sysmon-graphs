@@ -1,0 +1,13 @@
+{
+  "name": "sysmon-graphs",
+  "version": "19.0.0",
+  "private": true,
+  "description": "GNOME Shell extension: smooth CPU, RAM, GPU, temperature, network and disk graphs in the top bar",
+  "scripts": {
+    "test": "bash tests/run.sh",
+    "install-extension": "bash scripts/install-extension.sh"
+  },
+  "devDependencies": {
+    "jasmine-core": "^5.13.0"
+  }
+}
