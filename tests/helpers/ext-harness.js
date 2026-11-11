@@ -1,7 +1,7 @@
 // Creates a fresh, enabled extension on top of the stubs, and a few tiny helpers to poke at it.
 import Gio from 'gi://Gio';
 import {world} from './world.js';
-import {loadExtension, installShellGlobals} from './load.js';
+import {loadExtension, installShellGlobals, loadModule} from './load.js';
 import {resetPanel, rightBox, runningApps} from './gnome-stubs.js';
 
 // the memory settings backend is shared inside one process: put every key back to its default
@@ -12,7 +12,19 @@ export function resetAllSettings() {
     for (const k of schema.list_keys()) s.reset(k);
 }
 
+// Specs never see this machine's BIOS and can never run a privileged command: the BIOS module points at empty
+// folders and refuses to run anything until a spec installs its own fake (see tests/helpers/fake-bios.js).
+export async function isolateBios() {
+    const Bios = await loadModule('bios.js');
+    Object.assign(Bios.cfg, {
+        dir: `${world.root}/no-bios`, drm: `${world.root}/no-drm`, pci: `${world.root}/no-pci`, pkexec: 'pkexec',
+        run: async argv => { throw new Error(`a spec tried to run a command: ${argv.join(' ')}`); },
+    });
+    return Bios;
+}
+
 export async function createExtension() {
+    await isolateBios();
     installShellGlobals();
     resetPanel();
     runningApps.clear();

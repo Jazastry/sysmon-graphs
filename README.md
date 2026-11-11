@@ -51,6 +51,21 @@ Changes apply immediately.
 * Settings: show/hide the GPU items, choose which are shown (Auto = one item per GPU in the machine /
   NVIDIA only / integrated only), and set graph width, color, text size and text box width for each GPU item.
 
+## BIOS graphics mode (Lenovo)
+On Lenovo laptops whose BIOS exposes the setting through the kernel's `think_lmi` driver
+(`/sys/class/firmware-attributes/thinklmi/attributes/GraphicsDevice`), the NVIDIA GPU popover gets a **BIOS graphics mode**
+section (the integrated GPU's popover when the machine has no NVIDIA GPU at the moment, so the way back from UMA mode is never hidden):
+
+* **Switchable Graphics**: the integrated GPU draws the desktop, NVIDIA renders on demand (hybrid).
+* **Discrete Graphics**: NVIDIA draws the whole desktop and the integrated GPU stays unused. Its memory is no longer used for the desktop, at the cost of more power.
+* **UMA Graphics**: integrated GPU only, NVIDIA is switched off.
+
+Clicking a mode first shows what it means and asks for confirmation; only then is the change written, through `pkexec`
+(the normal polkit password dialog). The value is stored in the BIOS and takes effect after a reboot; the popover then says
+a reboot is pending. The current mode is detected from where the built-in panel is connected (the real value is root-only in sysfs).
+Nothing is offered when a BIOS administrator password is set, and the same setting can always be changed in the BIOS setup (F2 at boot).
+This does not change the integrated GPU's memory size (the BIOS "UMA frame buffer size"), which this firmware does not expose.
+
 ## Popovers
 Hover to peek. Click a graph to pin its popover open; click it again to close it.
 

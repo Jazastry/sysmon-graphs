@@ -25,6 +25,8 @@ skips those specs if neither is available. Exit status is 0 when everything pass
 | `extension-panel.spec.js` | the top bar items: order, show/hide, widths and text, the two GPU items, threshold alerts |
 | `extension-popover.spec.js` | hover, click-to-pin, closing, one popover at a time |
 | `extension-apps.spec.js` | the "Apps on NVIDIA" list, launching (generic apps, browsers, Firefox), the running-app warning, the Always toggle |
+| `bios.spec.js` | the BIOS graphics mode module: reading modes, detecting the current one, the fixed root script and pkexec exit codes (against fake folders; nothing privileged ever runs) |
+| `extension-bios.spec.js` | the "BIOS graphics mode" popover section: confirm/cancel flow, results, administrator password, reboot hint |
 | `prefs.spec.js` | the real settings window: per-item rows, item order and switches, alert rows, values written to settings |
 | `project.spec.js` | `metadata.json` (uuid, schema, imports), `package.json`, `.gitignore`, and the install script run against a temporary folder |
 

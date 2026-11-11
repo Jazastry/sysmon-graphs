@@ -12,6 +12,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 
 import {drawChart, lighten} from './chart.js';
+import * as Bios from './bios.js';
 import * as Perm from './perm.js';
 import {Sampler} from './sampler.js';
 import * as S from './stats.js';
@@ -635,6 +636,9 @@ class GpuItem extends Item {
         this.modeRow.actor.visible = false;
         this.gpuBox = new St.BoxLayout({vertical: true});
         this.body.add_child(this.gpuBox);
+        this.gfxBox = new St.BoxLayout({vertical: true});     // BIOS graphics mode (only in one of the two popovers)
+        this.body.add_child(this.gfxBox);
+        this._gfx = {pending: null, busy: false, msg: null};
         if (this.role !== 'nvidia') return;       // the app launcher belongs to the dedicated GPU
 
         this.body.add_child(mkLabel('APPS ON THE DEDICATED GPU', 'sysmon-section'));
@@ -732,7 +736,100 @@ class GpuItem extends Item {
         return wrap;
     }
 
+    // ---- BIOS graphics mode (Lenovo think-lmi): shown in the NVIDIA popover, or in the integrated GPU's when the
+    // machine has no NVIDIA GPU right now (UMA mode), so the way back is never hidden ----
+    _rebuildGfx() {
+        if (!this.gfxBox) return;
+        this.gfxBox.destroy_all_children();
+        if ((this._gfxHost === 'nvidia') !== (this.role === 'nvidia')) return;
+        const info = Bios.info();
+        if (!info) return;
+        const g = this._gfx;
+        this.gfxBox.add_child(mkLabel('BIOS GRAPHICS MODE', 'sysmon-section'));
+        this.gfxBox.add_child(listRow('Current', info.detected || 'unknown'));
+        if (info.locked) {
+            this.gfxBox.add_child(mkLabel('A BIOS administrator password is set, so the mode cannot be changed from here.', 'sysmon-caption'));
+        } else {
+            for (const mode of info.modes) {
+                const on = mode === info.detected;
+                const b = new St.Button({style_class: on ? 'sysmon-perm sysmon-perm-on' : 'sysmon-perm', can_focus: true,
+                    x_align: Clutter.ActorAlign.START, reactive: !g.busy,
+                    child: mkLabel(on ? `✔ ${mode}` : mode, 'sysmon-perm-text')});
+                b.connect('clicked', () => this._askGfx(mode));
+                this.gfxBox.add_child(b);
+            }
+        }
+        if (g.pending) {
+            this.gfxBox.add_child(mkLabel(this._gfxWarning(g.pending), 'sysmon-warn', {x_expand: true}));
+            const row = new St.BoxLayout({style_class: 'sysmon-app-row'});
+            const ok = new St.Button({style_class: 'sysmon-perm sysmon-perm-on', can_focus: true,
+                child: mkLabel(`Change to ${g.pending}`, 'sysmon-perm-text')});
+            ok.connect('clicked', () => this._applyGfx());
+            const no = new St.Button({style_class: 'sysmon-link', can_focus: true, child: mkLabel('Cancel', 'sysmon-link-text')});
+            no.connect('clicked', () => { g.pending = null; this._rebuildGfx(); });
+            row.add_child(ok);
+            row.add_child(no);
+            this.gfxBox.add_child(row);
+        }
+        if (g.busy) this.gfxBox.add_child(mkLabel('Waiting for authentication…', 'sysmon-caption'));
+        if (g.msg) this.gfxBox.add_child(mkLabel(g.msg, 'sysmon-warn', {x_expand: true}));
+        if (info.pendingReboot && !g.msg) this.gfxBox.add_child(mkLabel('A BIOS change is waiting for a reboot.', 'sysmon-warn'));
+        this.gfxBox.add_child(mkLabel('Stored in the BIOS; takes effect after a reboot. Asks for your password. Can also be changed in the BIOS setup (F2 at boot).', 'sysmon-caption'));
+    }
+
+    _gfxWarning(mode) {
+        const what = {
+            discrete: 'NVIDIA will draw the whole desktop and the integrated GPU will stay unused (more power use).',
+            uma: 'NVIDIA will be switched off completely; apps will not be able to use it.',
+            switchable: 'The integrated GPU will draw the desktop and NVIDIA will render only on demand.',
+        }[Bios.kind(mode)] || '';
+        return `Change the BIOS graphics mode to "${mode}"? ${what} Takes effect after a reboot.`;
+    }
+
+    _askGfx(mode) {
+        this._gfx.pending = mode;
+        this._gfx.msg = null;
+        this._pinned = true;                      // keep the popover open while confirming
+        this._rebuildGfx();
+    }
+
+    async _applyGfx() {
+        const g = this._gfx, mode = g.pending;
+        if (!mode || g.busy) return;
+        g.pending = null;
+        g.msg = null;
+        g.busy = true;
+        this._rebuildGfx();
+        let r = 'error';
+        try { r = await Bios.apply(mode); } catch (e) { logError(e, 'SysMon: BIOS graphics mode'); }
+        if (this._gone) return;
+        g.busy = false;
+        g.msg = {
+            ok: `BIOS graphics mode set to "${mode}". Reboot to apply it.`,
+            cancelled: 'Cancelled: nothing was changed.',
+            locked: 'A BIOS administrator password is set, so the mode cannot be changed from here.',
+            invalid: 'The BIOS does not accept that mode. Nothing was changed.',
+            'no-pkexec': 'pkexec (polkit) was not found, so the mode cannot be changed from here.',
+        }[r] || 'The change failed. Nothing was changed (see journalctl for details).';
+        this._rebuildGfx();
+    }
+
+    show() {
+        super.show();
+        this._rebuildGfx();                       // fresh reading of the BIOS state each time the popover opens
+    }
+
+    destroy() {
+        this._gone = true;
+        super.destroy();
+    }
+
     hide() {
+        if (this._gfx && (this._gfx.pending || this._gfx.msg)) {     // a half-made choice does not survive closing
+            this._gfx.pending = null;
+            this._gfx.msg = null;
+            this._rebuildGfx();
+        }
         if (this._picking || this._warn) {     // leave the picker and any warning closed next time
             this._picking = false;
             this._warn = null;
@@ -811,6 +908,8 @@ class GpuItem extends Item {
     }
     setPopover(snap) {
         const gpu = this.gpuOf(snap);
+        const host = this.ext.gpuPair(snap).nv ? 'nvidia' : 'other';
+        if (this._gfxHost !== host) { this._gfxHost = host; this._rebuildGfx(); }
         this.bigValue.text = gpu && gpu.state === 'active' && gpu.load !== null ? pct(gpu.load) : (gpu && gpu.state === 'asleep' ? 'sleep' : 'n/a');
         this.subtitle.text = gpu ? gpu.name : 'No such GPU found';
         const showMode = this.role === 'nvidia' && !!snap.gpu.mode;
